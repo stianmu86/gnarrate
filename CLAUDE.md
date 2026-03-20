@@ -78,7 +78,17 @@ Phase 5: Polish + all error states
   - [x] Shared Edge Function utils (_shared/supabase-client.ts, cors.ts)
   - [x] Modal Function: analyze-text (sanitisation, chunking, chapter detection)
   - [x] 39 unit tests passing (theme, provider, client, credit guard, analyze-text, stripe webhook)
-- [ ] Phase 2 — GPU Worker (TTS pipeline) (NEXT)
-- [ ] Phase 3 — App shell + Nordic UI
+- [x] Phase 2 — GPU Worker (TTS pipeline) (COMPLETE)
+  - [x] Modal container: CUDA 12.1, PyTorch 2.1, FFmpeg, CosyVoice/ModelScope
+  - [x] GPU config: A10G, 600s timeout, 2 retries, 16GB RAM
+  - [x] Sentence-boundary chunking (500 chars max, clause fallback for long sentences)
+  - [x] Per-chunk TTS inference with completed_chunks progress updates
+  - [x] FFmpeg stitching → MP3 128kbps with ID3 tags (Title, Artist, Album)
+  - [x] Supabase Storage upload to audio/{user_id}/{narration_id}.mp3
+  - [x] Completion callback: status=completed, audio_url, duration_seconds
+  - [x] Failure handling: status=failed, narration_errors log, credit refund
+  - [x] Voice seed volume for 6 narrator personas
+  - [x] 55 unit tests passing (added generate-audio: chunking, progress, failure, config)
+- [ ] Phase 3 — App shell + Nordic UI (NEXT)
 - [ ] Phase 4 — Audio player
 - [ ] Phase 5 — Polish + error states
