@@ -1,6 +1,5 @@
 import React from 'react';
-import { Text } from 'react-native';
-import { renderHook } from '@testing-library/react-native';
+import { renderHook, act } from '@testing-library/react-native';
 import { NordicThemeProvider, useNordicTheme } from '../components/NordicThemeProvider';
 import { lightTheme, darkTheme } from '../constants/theme';
 
@@ -17,23 +16,20 @@ describe('NordicThemeProvider', () => {
     useColorScheme.mockReturnValue('light');
   });
 
-  it('defaults to light theme when system is light', () => {
-    const wrapper = ({ children }: { children: React.ReactNode }) => (
-      <NordicThemeProvider>{children}</NordicThemeProvider>
-    );
+  const wrapper = ({ children }: { children: React.ReactNode }) => (
+    <NordicThemeProvider>{children}</NordicThemeProvider>
+  );
 
+  it('defaults to system mode with light theme when system is light', () => {
     const { result } = renderHook(() => useNordicTheme(), { wrapper });
 
     expect(result.current.theme).toEqual(lightTheme);
     expect(result.current.isDark).toBe(false);
+    expect(result.current.mode).toBe('system');
   });
 
   it('uses dark theme when system is dark', () => {
     useColorScheme.mockReturnValue('dark');
-
-    const wrapper = ({ children }: { children: React.ReactNode }) => (
-      <NordicThemeProvider>{children}</NordicThemeProvider>
-    );
 
     const { result } = renderHook(() => useNordicTheme(), { wrapper });
 
@@ -41,31 +37,53 @@ describe('NordicThemeProvider', () => {
     expect(result.current.isDark).toBe(true);
   });
 
-  it('respects explicit light mode override', () => {
-    useColorScheme.mockReturnValue('dark');
-
-    const wrapper = ({ children }: { children: React.ReactNode }) => (
-      <NordicThemeProvider mode="light">{children}</NordicThemeProvider>
-    );
+  it('setMode to dark overrides system light', () => {
+    useColorScheme.mockReturnValue('light');
 
     const { result } = renderHook(() => useNordicTheme(), { wrapper });
+
+    act(() => {
+      result.current.setMode('dark');
+    });
+
+    expect(result.current.theme).toEqual(darkTheme);
+    expect(result.current.isDark).toBe(true);
+    expect(result.current.mode).toBe('dark');
+  });
+
+  it('setMode to light overrides system dark', () => {
+    useColorScheme.mockReturnValue('dark');
+
+    const { result } = renderHook(() => useNordicTheme(), { wrapper });
+
+    // Initially dark from system
+    expect(result.current.isDark).toBe(true);
+
+    act(() => {
+      result.current.setMode('light');
+    });
 
     expect(result.current.theme).toEqual(lightTheme);
     expect(result.current.isDark).toBe(false);
     expect(result.current.mode).toBe('light');
   });
 
-  it('respects explicit dark mode override', () => {
-    useColorScheme.mockReturnValue('light');
-
-    const wrapper = ({ children }: { children: React.ReactNode }) => (
-      <NordicThemeProvider mode="dark">{children}</NordicThemeProvider>
-    );
+  it('setMode to system restores system preference', () => {
+    useColorScheme.mockReturnValue('dark');
 
     const { result } = renderHook(() => useNordicTheme(), { wrapper });
 
-    expect(result.current.theme).toEqual(darkTheme);
+    // Override to light
+    act(() => {
+      result.current.setMode('light');
+    });
+    expect(result.current.isDark).toBe(false);
+
+    // Back to system (which is dark)
+    act(() => {
+      result.current.setMode('system');
+    });
     expect(result.current.isDark).toBe(true);
-    expect(result.current.mode).toBe('dark');
+    expect(result.current.mode).toBe('system');
   });
 });
