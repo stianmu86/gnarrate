@@ -1,35 +1,56 @@
 # Dependencies
 node_modules/
-.expo/
-
-# Environment variables
-.env
-.env.local
-.env.*.local
-
-# Build outputs
-dist/
-build/
-*.tgz
-
-# OS files
-.DS_Store
-Thumbs.db
-
-# IDE
-.vscode/
-.idea/
 
 # Expo
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# Native (generated)
+/ios
+/android
+.kotlin/
+*.orig.*
 *.jks
 *.p8
 *.p12
 *.key
 *.mobileprovision
-*.orig.*
-web-build/
 
-# Archive & docs (not part of app)
-Archive/
+# Metro
+.metro-health-check*
+
+# Environment variables — NEVER commit real secrets
+.env.local
+.env.dev
+.env.test
+.env.prod
+.env*.local
+
+# Supabase Edge Function secrets (if accidentally created as a file)
+.env.supabase
+
+# Modal secrets (if accidentally created as a file)
+.env.modal
+
+# Debug logs
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# macOS
+.DS_Store
+*.pem
+
+# Archive & docs zip
 *.zip
-*.docx
+Archive/
+
+# TypeScript build info
+*.tsbuildinfo
+
+# Python (Modal worker)
+__pycache__/
+*.pyc
+.venv/
