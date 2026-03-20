@@ -67,14 +67,18 @@ Phase 5: Polish + all error states
   - [x] SQL migration (001_initial_schema.sql) — 9 tables, 3 enums, 3 functions, 20 RLS policies
   - [x] Migration verified on local Supabase instance
   - [x] GitHub repo created (stianmu86/gnarrate) with remote configured
-- [ ] Phase 1 — Infrastructure (NEXT)
-  - [ ] Auth config (Google OAuth + Email Magic Links)
-  - [ ] Storage buckets (covers: public, audio: private)
-  - [ ] Auth hook (signup bonus: 1,800 seconds)
-  - [ ] Edge Function: process-content (scraper + credit guard)
-  - [ ] Modal Function: analyze-text (Llama 3.1)
-  - [ ] Edge Function: stripe-webhook
-- [ ] Phase 2 — GPU Worker (TTS pipeline)
+- [x] Phase 1 — Infrastructure (COMPLETE)
+  - [x] Auth config (Google OAuth enabled in config.toml, Email Magic Links enabled by default)
+  - [x] Storage buckets (covers: public, audio: private) configured in config.toml
+  - [x] Auth hook (signup bonus: 1,800 seconds) — migration 002
+  - [x] Storage RLS policies (own-folder access, public narration audio) — migration 002
+  - [x] Seed data: 6 narrator voices (1 standard + 5 pro)
+  - [x] Edge Function: process-content (scraper, credit guard, dedup, Modal trigger)
+  - [x] Edge Function: stripe-webhook (4 event handlers, signature verification)
+  - [x] Shared Edge Function utils (_shared/supabase-client.ts, cors.ts)
+  - [x] Modal Function: analyze-text (sanitisation, chunking, chapter detection)
+  - [x] 39 unit tests passing (theme, provider, client, credit guard, analyze-text, stripe webhook)
+- [ ] Phase 2 — GPU Worker (TTS pipeline) (NEXT)
 - [ ] Phase 3 — App shell + Nordic UI
 - [ ] Phase 4 — Audio player
 - [ ] Phase 5 — Polish + error states
