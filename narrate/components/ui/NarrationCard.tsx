@@ -15,9 +15,11 @@ import { formatSeconds } from '@/lib/hooks/useCredits';
 
 interface Props {
   narration: Narration;
+  onRetry?: (narration: Narration) => void;
+  onDelete?: (narration: Narration) => void;
 }
 
-export function NarrationCard({ narration }: Props) {
+export function NarrationCard({ narration, onRetry, onDelete }: Props) {
   const router = useRouter();
   const { theme, isDark } = useNordicTheme();
 
@@ -29,12 +31,21 @@ export function NarrationCard({ narration }: Props) {
   const handlePress = () => {
     if (narration.status === 'completed') {
       router.push(`/item/${narration.id}`);
+    } else if (narration.status === 'failed' && onRetry) {
+      onRetry(narration);
+    }
+  };
+
+  const handleLongPress = () => {
+    if (narration.status === 'failed' && onDelete) {
+      onDelete(narration);
     }
   };
 
   return (
     <Pressable
       onPress={handlePress}
+      onLongPress={handleLongPress}
       style={{
         backgroundColor: theme.surface,
         borderRadius: 24,
@@ -147,7 +158,7 @@ function statusLabel(narration: Narration): string {
       }
       return 'Processing...';
     case 'failed':
-      return 'Failed — tap to retry';
+      return 'Failed — tap to retry, hold to delete';
     case 'pending':
       return 'Queued';
     default:

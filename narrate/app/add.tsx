@@ -41,11 +41,18 @@ export default function AddScreen() {
     { key: 'text', label: 'Text', icon: Type },
   ];
 
+  const isValidUrl = (value: string): boolean => {
+    const trimmed = value.trim();
+    return trimmed.startsWith('http://') || trimmed.startsWith('https://');
+  };
+
   const canSubmit = () => {
-    if (activeTab === 'url') return url.trim().length > 0;
+    if (activeTab === 'url') return isValidUrl(url);
     if (activeTab === 'text') return rawText.trim().length >= 100;
     return false; // PDF requires file picker (Phase 4)
   };
+
+  const showUrlError = activeTab === 'url' && url.trim().length > 0 && !isValidUrl(url);
 
   const handleSubmit = async () => {
     if (!user || !canSubmit()) return;
@@ -213,9 +220,15 @@ export default function AddScreen() {
                 borderColor: theme.border,
               }}
             />
-            <Text style={{ fontFamily: 'Inter', fontSize: 12, color: theme.textSecondary, marginTop: 8 }}>
-              Paste any article, blog post, or web page URL.
-            </Text>
+            {showUrlError ? (
+              <Text style={{ fontFamily: 'Inter', fontSize: 12, color: theme.accent, marginTop: 8 }}>
+                URL must start with http:// or https://
+              </Text>
+            ) : (
+              <Text style={{ fontFamily: 'Inter', fontSize: 12, color: theme.textSecondary, marginTop: 8 }}>
+                Paste any article, blog post, or web page URL.
+              </Text>
+            )}
           </View>
         )}
 

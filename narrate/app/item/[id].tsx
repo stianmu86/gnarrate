@@ -4,8 +4,9 @@
  * Supports ?t=seconds deep link for seeking to a timestamp.
  */
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, Pressable, ScrollView, ActivityIndicator } from 'react-native';
+import { View, Text, Pressable, ScrollView, ActivityIndicator, Share, Alert, Platform } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import * as FileSystem from 'expo-file-system';
 import {
   ArrowLeft,
   Play,
@@ -109,10 +110,43 @@ export default function NowPlayingScreen() {
           <ArrowLeft size={24} color={theme.textPrimary} strokeWidth={1.5} />
         </Pressable>
         <View style={{ flexDirection: 'row', gap: 16 }}>
-          <Pressable hitSlop={12}>
+          <Pressable
+            hitSlop={12}
+            onPress={async () => {
+              try {
+                await Share.share({
+                  message: `${narration.title} — narrate://item/${id}`,
+                });
+              } catch {}
+            }}
+          >
             <Share2 size={20} color={theme.textSecondary} strokeWidth={1.5} />
           </Pressable>
-          <Pressable hitSlop={12}>
+          <Pressable
+            hitSlop={12}
+            onPress={async () => {
+              if (!narration.audio_url) {
+                Alert.alert('Not ready', 'Audio is not available yet.');
+                return;
+              }
+              const publicUrl = narration.audio_url.replace(
+                '/storage/v1/object/audio/',
+                '/storage/v1/object/public/audio/'
+              );
+              if (Platform.OS === 'web') {
+                window.open(publicUrl, '_blank');
+              } else {
+                try {
+                  const filename = `${narration.title.replace(/[^a-zA-Z0-9]/g, '_')}.mp3`;
+                  const dest = `${FileSystem.documentDirectory}${filename}`;
+                  await FileSystem.downloadAsync(publicUrl, dest);
+                  Alert.alert('Downloaded', `Saved to device as ${filename}`);
+                } catch (err) {
+                  Alert.alert('Download failed', err instanceof Error ? err.message : 'Unknown error');
+                }
+              }
+            }}
+          >
             <Download size={20} color={theme.textSecondary} strokeWidth={1.5} />
           </Pressable>
         </View>
@@ -223,6 +257,42 @@ export default function NowPlayingScreen() {
             </Text>
           </View>
         </View>
+
+        {/* Audio load error */}
+        {player.error && (
+          <View style={{ alignItems: 'center', marginBottom: 12 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <AlertCircle size={16} color={theme.accent} strokeWidth={1.5} />
+              <Text style={{ fontFamily: 'Inter', fontSize: 13, color: theme.accent }}>
+                Failed to load audio
+              </Text>
+            </View>
+            <Pressable
+              onPress={() => {
+                if (narration.audio_url) {
+                  hasLoadedAudio.current = false;
+                  const publicUrl = narration.audio_url.replace(
+                    '/storage/v1/object/audio/',
+                    '/storage/v1/object/public/audio/'
+                  );
+                  player.loadAudio(publicUrl);
+                }
+              }}
+              style={{
+                marginTop: 8,
+                paddingHorizontal: 16,
+                paddingVertical: 8,
+                borderRadius: 16,
+                borderWidth: 1,
+                borderColor: theme.accent,
+              }}
+            >
+              <Text style={{ fontFamily: 'Inter', fontSize: 13, fontWeight: '600', color: theme.accent }}>
+                Retry
+              </Text>
+            </Pressable>
+          </View>
+        )}
 
         {/* Playback controls */}
         <View

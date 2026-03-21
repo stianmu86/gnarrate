@@ -2,8 +2,9 @@
  * Settings screen — Theme toggle, account info, downloads, data export.
  */
 import React from 'react';
-import { View, Text, Pressable, ScrollView, Switch } from 'react-native';
+import { View, Text, Pressable, ScrollView, Switch, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft,
   Moon,
@@ -20,6 +21,7 @@ export default function SettingsScreen() {
   const { theme, mode, setMode } = useNordicTheme();
   const router = useRouter();
   const { user } = useAuth();
+  const queryClient = useQueryClient();
 
   const isDark = mode === 'dark';
 
@@ -182,6 +184,10 @@ export default function SettingsScreen() {
           </View>
 
           <Pressable
+            onPress={() => {
+              queryClient.clear();
+              Alert.alert('Cache cleared', 'All cached data has been removed.');
+            }}
             style={{
               flexDirection: 'row',
               alignItems: 'center',

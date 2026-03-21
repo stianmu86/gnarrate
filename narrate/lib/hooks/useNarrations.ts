@@ -20,6 +20,7 @@ export interface Narration {
   word_count: number | null;
   total_chunks: number | null;
   completed_chunks: number;
+  content_raw: string | null;
   status: 'pending' | 'processing' | 'completed' | 'failed';
   is_public: boolean;
   chapters: Array<{ title: string; start_time: number }> | null;
