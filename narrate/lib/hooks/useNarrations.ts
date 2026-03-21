@@ -21,6 +21,8 @@ export interface Narration {
   total_chunks: number | null;
   completed_chunks: number;
   content_raw: string | null;
+  pdf_storage_path: string | null;
+  pdf_page_count: number | null;
   status: 'pending' | 'processing' | 'completed' | 'failed';
   is_public: boolean;
   chapters: Array<{ title: string; start_time: number }> | null;

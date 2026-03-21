@@ -136,3 +136,13 @@ Phase 5: Polish + all error states
   - [x] useAudioPlayer error state + try/catch on loadAudio
   - [x] Narration type extended with content_raw for retry logic
   - [x] 114 unit tests passing across 9 suites
+- [x] Sprint 6 — PDF Uploading & Chapter Detection (COMPLETE)
+  - [x] Supabase Storage bucket (pdfs) with RLS policies
+  - [x] SQL migration 003: pdf_storage_path + pdf_page_count columns
+  - [x] expo-document-picker installed
+  - [x] PDF tab in add.tsx: file picker, size validation (50MB), filename display, remove button
+  - [x] Edge Function: multipart/form-data parsing, PDF validation, Storage upload, credit estimation from file size
+  - [x] Modal analyze-text: PyMuPDF extraction, 3-tier chapter detection (TOC > font-size > text heuristic)
+  - [x] Scanned PDF detection, 200-page limit, 150k character limit
+  - [x] Narration type extended with pdf_storage_path and pdf_page_count
+  - [x] 138 unit tests passing across 10 suites

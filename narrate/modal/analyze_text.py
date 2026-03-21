@@ -24,7 +24,7 @@ app = modal.App("narrate-analyze-text")
 
 image = (
     modal.Image.debian_slim(python_version="3.11")
-    .pip_install("supabase", "httpx", "fastapi")
+    .pip_install("supabase", "httpx", "fastapi", "pymupdf")
 )
 
 MAX_CHUNK_CHARS = 500
@@ -57,6 +57,141 @@ def sanitize_text(text: str) -> str:
     text = re.sub(r'\n{3,}', '\n\n', text)
     text = re.sub(r' {2,}', ' ', text)
     return text.strip()
+
+
+def extract_pdf_text_and_chapters(pdf_bytes: bytes) -> tuple:
+    """
+    Extract text and structural chapters from a PDF using PyMuPDF.
+    Returns (full_text, chapters, page_count) where chapters have start_char positions.
+
+    Chapter detection priority:
+    1. PDF Table of Contents / Bookmarks (highest quality)
+    2. Font-size-based heading detection (fallback)
+    3. No chapters found → returns single "Full Text" chapter
+    """
+    import fitz  # PyMuPDF
+
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    page_count = doc.page_count
+
+    if page_count > 200:
+        doc.close()
+        raise ValueError(f"PDF has {page_count} pages (maximum is 200)")
+
+    # Extract text page by page, tracking character offsets
+    full_text = ""
+    page_char_offsets = []  # [(page_num, start_char)]
+
+    for page_num in range(page_count):
+        page = doc[page_num]
+        page_char_offsets.append((page_num, len(full_text)))
+        page_text = page.get_text("text")
+        full_text += page_text + "\n\n"
+
+    # Check for scanned/image-only PDF
+    if len(full_text.strip()) < 100 and page_count > 0:
+        doc.close()
+        raise ValueError("This PDF contains no extractable text. It may be a scanned document.")
+
+    # Check character limit
+    if len(full_text) > 150000:
+        doc.close()
+        raise ValueError(f"PDF content exceeds 150,000 character limit ({len(full_text)} chars)")
+
+    chapters = []
+
+    # Strategy A: Try PDF Table of Contents / Bookmarks
+    toc = doc.get_toc()
+    if toc:
+        for level, title, page_num in toc:
+            if level <= 2:  # Only top 2 heading levels
+                # Map page number to character offset
+                idx = min(page_num - 1, len(page_char_offsets) - 1)
+                idx = max(0, idx)
+                char_offset = page_char_offsets[idx][1] if page_char_offsets else 0
+                chapters.append({"title": title.strip(), "start_char": char_offset})
+
+    # Strategy B: Font-size-based heading detection
+    if not chapters:
+        chapters = _detect_headings_by_font(doc, page_char_offsets)
+
+    # Fallback: single chapter
+    if not chapters:
+        chapters = [{"title": "Full Text", "start_char": 0}]
+
+    doc.close()
+    return full_text, chapters, page_count
+
+
+def _detect_headings_by_font(doc, page_char_offsets: list) -> list:
+    """
+    Detect headings by analyzing font sizes across the document.
+    Headings are text blocks with font size significantly larger than the median body text.
+    """
+    import fitz  # PyMuPDF
+
+    # Collect all font sizes to compute median
+    all_sizes = []
+    for page in doc:
+        blocks = page.get_text("dict")["blocks"]
+        for block in blocks:
+            if "lines" not in block:
+                continue
+            for line in block["lines"]:
+                for span in line["spans"]:
+                    if span["text"].strip():
+                        all_sizes.append(span["size"])
+
+    if not all_sizes:
+        return []
+
+    # Compute median font size
+    sorted_sizes = sorted(all_sizes)
+    median_size = sorted_sizes[len(sorted_sizes) // 2]
+    heading_threshold = median_size * 1.3  # 30% larger than median
+
+    chapters = []
+
+    for page_num in range(doc.page_count):
+        page = doc[page_num]
+        page_start_char = page_char_offsets[page_num][1] if page_num < len(page_char_offsets) else 0
+
+        blocks = page.get_text("dict")["blocks"]
+        block_char_offset = 0
+
+        for block in blocks:
+            if "lines" not in block:
+                continue
+
+            block_text = ""
+            max_font_size = 0
+            is_bold = False
+
+            for line in block["lines"]:
+                for span in line["spans"]:
+                    block_text += span["text"]
+                    max_font_size = max(max_font_size, span["size"])
+                    if "bold" in span["font"].lower() or (span.get("flags", 0) & 2 ** 4):
+                        is_bold = True
+
+            block_text = block_text.strip()
+
+            # Heading criteria: larger font, short text, doesn't end with period
+            if (
+                block_text
+                and len(block_text) < 100
+                and max_font_size >= heading_threshold
+                and not block_text.endswith('.')
+                and not block_text.endswith(',')
+            ):
+                chapters.append({
+                    "title": block_text,
+                    "start_char": page_start_char + block_char_offset,
+                })
+
+            block_char_offset += len(block_text) + 2  # approximate offset
+
+    return chapters
 
 
 def estimate_chapters(text: str) -> list[dict]:
@@ -135,12 +270,14 @@ def count_chunks(text: str) -> int:
 @modal.fastapi_endpoint(method="POST")
 def analyze_text(item: dict) -> dict:
     """
-    Main endpoint. Receives { narration_id, content_raw, voice_id }.
-    Processes text and updates the narrations row.
+    Main endpoint. Receives { narration_id, content_raw, voice_id, source_type?, pdf_storage_path? }.
+    Processes text (or extracts from PDF) and updates the narrations row.
     """
     narration_id = item["narration_id"]
-    content_raw = item["content_raw"]
+    content_raw = item.get("content_raw")  # May be None for PDFs
     voice_id = item["voice_id"]
+    source_type = item.get("source_type", "text")
+    pdf_storage_path = item.get("pdf_storage_path")
 
     supabase_url = os.environ["SUPABASE_URL"]
     supabase_key = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
@@ -152,11 +289,28 @@ def analyze_text(item: dict) -> dict:
             "status": "processing"
         }).eq("id", narration_id).execute()
 
-        # Task 3: Sanitise → content_cleaned
-        content_cleaned = sanitize_text(content_raw)
+        # PDF extraction path
+        if source_type == "pdf" and pdf_storage_path:
+            # Download PDF from Supabase Storage
+            pdf_bytes = supabase.storage.from_("pdfs").download(pdf_storage_path)
 
-        # Task 1: Chaptering
-        chapters = estimate_chapters(content_cleaned)
+            # Extract text and structural chapters
+            extracted_text, pdf_chapters, page_count = extract_pdf_text_and_chapters(pdf_bytes)
+
+            content_raw = extracted_text
+            content_cleaned = sanitize_text(content_raw)
+            chapters = pdf_chapters
+
+            # Update narration row with extracted content
+            supabase.table("narrations").update({
+                "content_raw": content_raw,
+                "word_count": len(content_raw.split()),
+                "pdf_page_count": page_count,
+            }).eq("id", narration_id).execute()
+        else:
+            # Existing text/URL path
+            content_cleaned = sanitize_text(content_raw)
+            chapters = estimate_chapters(content_cleaned)
 
         # Task 2: Metadata (summary)
         summary = generate_summary(content_cleaned)
