@@ -58,7 +58,7 @@ Phase 5: Polish + all error states
   - [x] Tailwind config with full Nordic Earth palette from VIM
   - [x] NativeWind wiring (babel, metro, global.css, type defs)
   - [x] Fonts downloaded (Newsreader + Inter) and loaded in root layout
-  - [x] NordicThemeProvider (system/light/dark mode switching)
+  - [x] NordicThemeProvider (system/light/dark mode switching, setMode())
   - [x] theme.ts with lightTheme/darkTheme constants
   - [x] Supabase client (lib/supabase.ts) — anon key only
   - [x] app.json: splash bg Linen, iOS background audio, deep link scheme
@@ -89,6 +89,22 @@ Phase 5: Polish + all error states
   - [x] Failure handling: status=failed, narration_errors log, credit refund
   - [x] Voice seed volume for 6 narrator personas
   - [x] 55 unit tests passing (added generate-audio: chunking, progress, failure, config)
-- [ ] Phase 3 — App shell + Nordic UI (NEXT)
-- [ ] Phase 4 — Audio player
+- [x] Phase 3 — App shell + Nordic UI (COMPLETE)
+  - [x] Root layout: auth guard, NordicThemeProvider, TanStack QueryClient, font loading
+  - [x] Tab bar: Library (BookOpen) | Explore (Compass) | Profile (User)
+  - [x] Auth screens: login (Google + Magic Link), onboarding (voice picker)
+  - [x] Library screen: 2-column FlatList grid, Realtime subscription, EmptyState handling
+  - [x] Explore screen: stub for Phase 3 / Sprint 7 social feed
+  - [x] Profile screen: user info, credit balance, upgrade CTA, settings/subscription links
+  - [x] Now Playing screen (item/[id].tsx): playback controls, progress bar, chapter list, ?t= deep link
+  - [x] Add Narration modal (add.tsx): URL / PDF / Text tabs, inline validation, process-content call
+  - [x] Paywall screen: Pro plan features, $4.99/mo, Stripe checkout placeholder
+  - [x] Settings screen: dark mode toggle, system theme, cache management, account info
+  - [x] Downloads screen: offline narration management stub
+  - [x] NordicThemeProvider upgraded: setMode() for user override (system/light/dark)
+  - [x] Reusable components: NarrationCard (status icons), EmptyState (8 edge states)
+  - [x] TanStack Query hooks: useLibrary (Realtime), useNarration, useCredits
+  - [x] Template files removed (two.tsx, modal.tsx)
+  - [x] 79 unit tests passing across 8 suites
+- [ ] Phase 4 — Audio player (NEXT)
 - [ ] Phase 5 — Polish + error states
