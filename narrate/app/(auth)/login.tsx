@@ -43,6 +43,29 @@ export default function LoginScreen() {
     }
   };
 
+  const handleDevSignIn = async (email: string, label: string) => {
+    setLoading(true);
+    const { error: signInError } = await supabase.auth.signInWithPassword({
+      email,
+      password: 'testpassword123',
+    });
+
+    if (signInError) {
+      const { error: signUpError } = await supabase.auth.signUp({
+        email,
+        password: 'testpassword123',
+        options: {
+          data: { full_name: label },
+        },
+      });
+
+      if (signUpError) {
+        Alert.alert('Dev Sign In Failed', signUpError.message);
+      }
+    }
+    setLoading(false);
+  };
+
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -197,6 +220,75 @@ export default function LoginScreen() {
                 {loading ? 'Sending...' : 'Send Magic Link'}
               </Text>
             </Pressable>
+
+            {/* Dev-only: instant sign-in with test account */}
+            {__DEV__ && (
+              <>
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 12,
+                  }}
+                >
+                  <View style={{ flex: 1, height: 1, backgroundColor: theme.border }} />
+                  <Text
+                    style={{
+                      fontFamily: 'Inter',
+                      fontSize: 12,
+                      color: theme.textSecondary,
+                    }}
+                  >
+                    dev only
+                  </Text>
+                  <View style={{ flex: 1, height: 1, backgroundColor: theme.border }} />
+                </View>
+                <Pressable
+                  onPress={() => handleDevSignIn('test@narrate.dev', 'Test User')}
+                  disabled={loading}
+                  style={{
+                    backgroundColor: theme.accentSecondary,
+                    borderRadius: 16,
+                    paddingVertical: 14,
+                    alignItems: 'center',
+                    opacity: loading ? 0.6 : 1,
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontFamily: 'Inter',
+                      fontSize: 14,
+                      fontWeight: '600',
+                      color: '#FFFFFF',
+                    }}
+                  >
+                    Dev Sign In (Free)
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => handleDevSignIn('pro@narrate.dev', 'Pro User')}
+                  disabled={loading}
+                  style={{
+                    backgroundColor: theme.accent,
+                    borderRadius: 16,
+                    paddingVertical: 14,
+                    alignItems: 'center',
+                    opacity: loading ? 0.6 : 1,
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontFamily: 'Inter',
+                      fontSize: 14,
+                      fontWeight: '600',
+                      color: '#FFFFFF',
+                    }}
+                  >
+                    Dev Sign In (Pro ⭐)
+                  </Text>
+                </Pressable>
+              </>
+            )}
           </>
         )}
       </View>

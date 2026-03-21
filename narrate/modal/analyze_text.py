@@ -24,7 +24,7 @@ app = modal.App("narrate-analyze-text")
 
 image = (
     modal.Image.debian_slim(python_version="3.11")
-    .pip_install("supabase", "httpx")
+    .pip_install("supabase", "httpx", "fastapi")
 )
 
 MAX_CHUNK_CHARS = 500
@@ -131,9 +131,8 @@ def count_chunks(text: str) -> int:
     image=image,
     secrets=[modal.Secret.from_name("narrate-secrets")],
     timeout=120,
-    retries=1,
 )
-@modal.web_endpoint(method="POST")
+@modal.fastapi_endpoint(method="POST")
 def analyze_text(item: dict) -> dict:
     """
     Main endpoint. Receives { narration_id, content_raw, voice_id }.
@@ -173,17 +172,34 @@ def analyze_text(item: dict) -> dict:
         }).eq("id", narration_id).execute()
 
         # Trigger TTS generation
+        # Use httpx stream to fire the request without waiting for full response
         modal_narrate_endpoint = os.environ.get("MODAL_NARRATE_ENDPOINT")
         if modal_narrate_endpoint:
             import httpx
-            httpx.post(
-                modal_narrate_endpoint,
-                json={
-                    "narration_id": narration_id,
-                    "voice_id": voice_id,
-                },
-                timeout=5.0,
-            )
+            try:
+                # Send the POST — Modal queues the GPU job on receipt
+                # We wait for the full response since the analyze-text
+                # function has a 120s timeout and the GPU worker updates
+                # status independently via Supabase
+                resp = httpx.post(
+                    modal_narrate_endpoint,
+                    json={
+                        "narration_id": narration_id,
+                        "voice_id": voice_id,
+                    },
+                    timeout=httpx.Timeout(
+                        connect=10.0,
+                        read=5.0,   # Don't wait for GPU to finish
+                        write=10.0,
+                        pool=10.0,
+                    ),
+                )
+                print(f"TTS trigger response: {resp.status_code}")
+            except httpx.ReadTimeout:
+                # Expected: request was sent, GPU is working
+                print("TTS trigger sent (read timeout — GPU processing)")
+            except Exception as e:
+                print(f"TTS trigger error: {e}")
 
         return {
             "status": "ok",

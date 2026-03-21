@@ -1,9 +1,13 @@
 """
-Narrate — generate-audio Modal GPU Worker (Phase 2)
+Narrate — generate-audio Modal Worker (Phase 2)
 
 Receives narration_id and voice_id after analyze-text completes.
 Reads content_cleaned from Supabase, generates TTS audio chunk-by-chunk
-using CosyVoice, stitches with FFmpeg, uploads to Supabase Storage.
+using edge-tts (Microsoft Edge TTS), stitches with FFmpeg, uploads to
+Supabase Storage.
+
+MVP uses edge-tts for reliable, high-quality TTS without GPU.
+Production will swap in CosyVoice on A10G for custom voice cloning.
 
 Endpoint: POST /generate-audio
 Body: { narration_id, voice_id }
@@ -12,6 +16,8 @@ Body: { narration_id, voice_id }
 ⚠️  Uses SUPABASE_SERVICE_ROLE_KEY for full write access.
 """
 
+from __future__ import annotations
+
 import modal
 import os
 import re
@@ -19,45 +25,45 @@ import io
 import json
 import tempfile
 import subprocess
-import time
+import asyncio
 from pathlib import Path
 
 app = modal.App("narrate-generate-audio")
 
 # ---------------------------------------------------------------------------
-# Container image with CUDA, PyTorch, FFmpeg, and CosyVoice dependencies
+# Container image — lightweight (no GPU needed for edge-tts MVP)
 # ---------------------------------------------------------------------------
 image = (
-    modal.Image.from_registry(
-        "nvidia/cuda:12.1.1-cudnn8-runtime-ubuntu22.04",
-        add_python="3.11",
-    )
-    .apt_install("ffmpeg", "libsndfile1", "git")
+    modal.Image.debian_slim(python_version="3.11")
+    .apt_install("ffmpeg")
     .pip_install(
-        "torch==2.1.2",
-        "torchaudio==2.1.2",
-        "numpy<2",
+        "edge-tts",       # Microsoft Edge TTS (high quality, free)
         "supabase",
         "httpx",
-        "mutagen",  # ID3 tag writing
-        "soundfile",
-        "librosa",
-    )
-    # CosyVoice installation
-    .run_commands(
-        "pip install modelscope",
-        "pip install cosyvoice-ttsfrd || true",  # Optional; falls back gracefully
+        "mutagen",        # ID3 tag writing
+        "fastapi",
     )
 )
 
 # ---------------------------------------------------------------------------
-# Voice seed audio volume (pre-recorded 5-second clips per voice persona)
+# Voice mapping: our voice IDs → edge-tts voice names
 # ---------------------------------------------------------------------------
-voice_seeds = modal.Volume.from_name("narrate-voice-seeds", create_if_missing=True)
+VOICE_MAP = {
+    # Default mappings for our 6 seed voices
+    "The Neutral": "en-US-AriaNeural",
+    "Warm": "en-US-JennyNeural",
+    "Smooth": "en-US-GuyNeural",
+    "Deep": "en-GB-RyanNeural",
+    "Storyteller": "en-US-DavisNeural",
+    "Resonant Male": "en-GB-ThomasNeural",
+}
+
+# Fallback voice
+DEFAULT_VOICE = "en-US-AriaNeural"
 
 MAX_CHUNK_CHARS = 500
 AUDIO_BITRATE = "128k"
-SAMPLE_RATE = 22050
+SAMPLE_RATE = 24000  # edge-tts outputs 24kHz
 
 
 def split_into_chunks(text: str, max_chars: int = MAX_CHUNK_CHARS) -> list[str]:
@@ -99,11 +105,11 @@ def split_into_chunks(text: str, max_chars: int = MAX_CHUNK_CHARS) -> list[str]:
 
 def stitch_audio_files(chunk_paths: list[str], output_path: str) -> float:
     """
-    Merge individual chunk WAV files into a single MP3 using FFmpeg.
+    Merge individual chunk MP3 files into a single MP3 using FFmpeg.
     Returns duration in seconds.
     """
     if len(chunk_paths) == 1:
-        # Single chunk — just convert to mp3
+        # Single chunk — just copy/re-encode to consistent format
         subprocess.run(
             [
                 "ffmpeg", "-y",
@@ -173,16 +179,32 @@ def write_id3_tags(mp3_path: str, title: str, artist: str | None = None):
     audio.save()
 
 
+async def _synthesize_chunk_async(
+    text: str,
+    voice: str,
+    output_path: str,
+) -> None:
+    """
+    Synthesize a single text chunk to an MP3 file using edge-tts.
+    """
+    import edge_tts
+
+    communicate = edge_tts.Communicate(text, voice)
+    await communicate.save(output_path)
+
+
+def synthesize_chunk(text: str, voice: str, output_path: str) -> None:
+    """Sync wrapper for async edge-tts synthesis."""
+    asyncio.run(_synthesize_chunk_async(text, voice, output_path))
+
+
 @app.function(
     image=image,
-    gpu="A10G",
     timeout=600,      # 10-minute hard cap
-    retries=2,        # Auto-retry on transient GPU failure
-    memory=16384,     # 16 GB RAM
+    memory=2048,      # 2 GB RAM (no GPU needed for edge-tts)
     secrets=[modal.Secret.from_name("narrate-secrets")],
-    volumes={"/voice-seeds": voice_seeds},
 )
-@modal.web_endpoint(method="POST")
+@modal.fastapi_endpoint(method="POST")
 def generate_audio(item: dict) -> dict:
     """
     Main TTS generation endpoint.
@@ -196,7 +218,6 @@ def generate_audio(item: dict) -> dict:
     6. Uploads to Supabase Storage audio bucket
     7. Updates narrations row: status=completed, audio_url, duration_seconds
     """
-    import torch
     from supabase import create_client
 
     narration_id = item["narration_id"]
@@ -243,7 +264,7 @@ def generate_audio(item: dict) -> dict:
         }).eq("id", narration_id).execute()
 
         # ------------------------------------------------------------------
-        # 3. Fetch voice config
+        # 3. Fetch voice config — map to edge-tts voice name
         # ------------------------------------------------------------------
         voice = (
             supabase.table("voices")
@@ -254,25 +275,24 @@ def generate_audio(item: dict) -> dict:
             .data
         )
 
-        provider_voice_id = voice["provider_voice_id"]
+        # Use voice name to look up edge-tts voice, fallback to default
+        voice_name = voice.get("name", "")
+        edge_voice = VOICE_MAP.get(voice_name, DEFAULT_VOICE)
+        print(f"Using edge-tts voice: {edge_voice} (for '{voice_name}')")
 
         # ------------------------------------------------------------------
         # 4. TTS inference — chunk by chunk
         # ------------------------------------------------------------------
-        # Load CosyVoice model
-        tts_model = _load_tts_model()
-
         tmpdir = tempfile.mkdtemp()
         chunk_paths: list[str] = []
 
         for i, chunk_text in enumerate(chunks):
-            chunk_path = os.path.join(tmpdir, f"chunk_{i:04d}.wav")
+            chunk_path = os.path.join(tmpdir, f"chunk_{i:04d}.mp3")
 
             # Generate audio for this chunk
-            _synthesize_chunk(
-                model=tts_model,
+            synthesize_chunk(
                 text=chunk_text,
-                voice_id=provider_voice_id,
+                voice=edge_voice,
                 output_path=chunk_path,
             )
 
@@ -306,7 +326,7 @@ def generate_audio(item: dict) -> dict:
                 file_options={"content-type": "audio/mpeg"},
             )
 
-        # Construct the audio URL
+        # Construct the audio URL (public URL for authenticated access)
         audio_url = f"{supabase_url}/storage/v1/object/audio/{storage_path}"
 
         # ------------------------------------------------------------------
@@ -376,90 +396,6 @@ def generate_audio(item: dict) -> dict:
             "narration_id": narration_id,
             "error": error_detail[:500],
         }
-
-
-# ---------------------------------------------------------------------------
-# TTS Model Loading & Inference
-# ---------------------------------------------------------------------------
-
-_model_cache: dict = {}
-
-
-def _load_tts_model():
-    """
-    Load CosyVoice model. Cached across warm invocations.
-    Uses FP16 quantisation for ~20x real-time speed on A10G.
-    """
-    if "model" in _model_cache:
-        return _model_cache["model"]
-
-    try:
-        from cosyvoice.cli.cosyvoice import CosyVoice
-
-        model = CosyVoice("iic/CosyVoice-300M-SFT")
-        _model_cache["model"] = model
-        return model
-    except ImportError:
-        # Fallback: use modelscope pipeline
-        from modelscope.pipelines import pipeline
-
-        model = pipeline(
-            task="text-to-speech",
-            model="iic/CosyVoice-300M-SFT",
-            device="cuda" if _has_gpu() else "cpu",
-        )
-        _model_cache["model"] = model
-        return model
-
-
-def _has_gpu() -> bool:
-    """Check if CUDA GPU is available."""
-    try:
-        import torch
-        return torch.cuda.is_available()
-    except ImportError:
-        return False
-
-
-def _synthesize_chunk(
-    model,
-    text: str,
-    voice_id: str,
-    output_path: str,
-) -> None:
-    """
-    Synthesize a single text chunk to a WAV file.
-
-    Uses the voice seed file if available, otherwise falls back to
-    the default model voice.
-    """
-    import soundfile as sf
-
-    seed_path = f"/voice-seeds/{voice_id}.wav"
-
-    try:
-        if hasattr(model, "inference_sft"):
-            # CosyVoice native API
-            output = model.inference_sft(text, voice_id)
-            for chunk_data in output:
-                audio_data = chunk_data["tts_speech"].numpy()
-                sf.write(output_path, audio_data.squeeze(), SAMPLE_RATE)
-                break  # Take first output
-        elif hasattr(model, "__call__"):
-            # ModelScope pipeline fallback
-            result = model(text)
-            if isinstance(result, dict) and "output_wav" in result:
-                sf.write(output_path, result["output_wav"], SAMPLE_RATE)
-            else:
-                # Raw tensor output
-                import numpy as np
-                audio = np.array(result) if not isinstance(result, np.ndarray) else result
-                sf.write(output_path, audio.squeeze(), SAMPLE_RATE)
-        else:
-            raise RuntimeError(f"Unknown model type: {type(model)}")
-    except Exception as e:
-        # If TTS fails, generate silence placeholder (will be retried by Modal)
-        raise RuntimeError(f"TTS synthesis failed for chunk: {e}") from e
 
 
 def _cleanup_temp(tmpdir: str) -> None:
