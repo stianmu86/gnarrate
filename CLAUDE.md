@@ -18,8 +18,8 @@ Root-level files (.env examples, docs) are project-wide references.
 ## Tech stack (do not deviate from this)
 - Frontend: Expo (React Native) + Expo Router + NativeWind
 - Backend: Supabase (PostgreSQL, Auth, Storage, Edge Functions)
-- AI / TTS: Modal.com (Python, A10G GPU, Qwen2-Audio / CosyVoice)
-- LLM logic: Llama 3.1 via Modal.com
+- AI / TTS: Modal.com (Python, edge-tts for MVP; CosyVoice/Qwen2-Audio planned for production)
+- LLM logic: Regex heuristics for MVP; Llama 3.1 via Modal.com planned for production
 - State management: TanStack Query
 - Audio: expo-av
 - Payments: Stripe
@@ -69,7 +69,7 @@ Phase 5: Polish + all error states
   - [x] GitHub repo created (stianmu86/gnarrate) with remote configured
 - [x] Phase 1 — Infrastructure (COMPLETE)
   - [x] Auth config (Google OAuth enabled in config.toml, Email Magic Links enabled by default)
-  - [x] Storage buckets (covers: public, audio: private) configured in config.toml
+  - [x] Storage buckets (covers: public, audio: public) configured in config.toml
   - [x] Auth hook (signup bonus: 1,800 seconds) — migration 002
   - [x] Storage RLS policies (own-folder access, public narration audio) — migration 002
   - [x] Seed data: 6 narrator voices (1 standard + 5 pro)
@@ -108,17 +108,20 @@ Phase 5: Polish + all error states
 - [x] Phase 4 — Audio player (COMPLETE)
   - [x] useAudioPlayer hook: expo-av wrapper (load, play, pause, seek, skip ±15/30s)
   - [x] Playback rate cycling (1x → 1.5x → 2x)
+  - [x] isLoaded guards on all controls (prevents "sound not loaded" crash)
   - [x] usePlaybackProgress: save/load position to Supabase (debounced every 10s)
   - [x] Now Playing screen wired to real expo-av audio
   - [x] Deep link support (?t=seconds) and resume from saved progress
   - [x] Buffering indicator, disabled controls when not ready
-  - [x] Dev Sign In button (test@narrate.dev, __DEV__ only)
-  - [x] Edge Functions deployed to cloud Supabase (process-content, stripe-webhook)
+  - [x] Audio bucket set to public (permanent URLs, no token refresh needed)
+  - [x] Dev Sign In: Free (test@narrate.dev) + Pro ⭐ (pro@narrate.dev, 3hr credits)
+  - [x] Edge Functions deployed to cloud Supabase (process-content with --no-verify-jwt, stripe-webhook)
   - [x] Local text analysis pipeline (modal/run_local.py) for dev without Modal
   - [x] Add screen sends voice_id + correct field names to Edge Function
   - [x] Root-level template duplicates cleaned up
   - [x] Cloud deployment: Supabase EU Frankfurt (rtbistjbjinyywbcgbyg) + Modal (stianmu86)
   - [x] Full end-to-end pipeline tested: text → Edge Function → Modal analyze → Modal TTS → MP3 → player
   - [x] Chapters parsing fixed (JSON string → array, hide single-chapter view)
+  - [x] PR #4 merged
   - [x] 112 unit tests passing across 9 suites
 - [ ] Phase 5 — Polish + error states
