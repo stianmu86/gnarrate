@@ -54,21 +54,29 @@ describe('Playback rate cycling', () => {
     return PLAYBACK_RATES[next];
   }
 
-  it('cycles from 1x to 1.5x', () => {
-    expect(cycleRate(1.0)).toBe(1.5);
+  it('cycles from 0.75x to 1x', () => {
+    expect(cycleRate(0.75)).toBe(1.0);
+  });
+
+  it('cycles from 1x to 1.2x', () => {
+    expect(cycleRate(1.0)).toBe(1.2);
+  });
+
+  it('cycles from 1.2x to 1.5x', () => {
+    expect(cycleRate(1.2)).toBe(1.5);
   });
 
   it('cycles from 1.5x to 2x', () => {
     expect(cycleRate(1.5)).toBe(2.0);
   });
 
-  it('cycles from 2x back to 1x', () => {
-    expect(cycleRate(2.0)).toBe(1.0);
+  it('cycles from 2x back to 0.75x', () => {
+    expect(cycleRate(2.0)).toBe(0.75);
   });
 
-  it('PLAYBACK_RATES has exactly 3 options', () => {
-    expect(PLAYBACK_RATES).toHaveLength(3);
-    expect(PLAYBACK_RATES).toEqual([1.0, 1.5, 2.0]);
+  it('PLAYBACK_RATES has exactly 5 options', () => {
+    expect(PLAYBACK_RATES).toHaveLength(5);
+    expect(PLAYBACK_RATES).toEqual([0.75, 1.0, 1.2, 1.5, 2.0]);
   });
 });
 

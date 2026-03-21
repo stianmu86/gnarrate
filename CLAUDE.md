@@ -124,4 +124,15 @@ Phase 5: Polish + all error states
   - [x] Chapters parsing fixed (JSON string → array, hide single-chapter view)
   - [x] PR #4 merged
   - [x] 112 unit tests passing across 9 suites
-- [ ] Phase 5 — Polish + error states
+- [x] Phase 5 — Polish + error states (COMPLETE)
+  - [x] 5-speed playback rate selector (0.75x, 1x, 1.2x, 1.5x, 2x)
+  - [x] Failed narration retry: tap to re-submit, long-press to delete
+  - [x] Network error retry: EmptyState wired to refetch
+  - [x] Audio load error display with retry button on Now Playing screen
+  - [x] Share button wired (React Native Share API, deep link)
+  - [x] Download button wired (expo-file-system on native, window.open on web)
+  - [x] URL validation: requires http:// or https:// prefix with inline error
+  - [x] Clear cache button in Settings (TanStack Query cache clear)
+  - [x] useAudioPlayer error state + try/catch on loadAudio
+  - [x] Narration type extended with content_raw for retry logic
+  - [x] 114 unit tests passing across 9 suites

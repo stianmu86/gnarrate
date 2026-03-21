@@ -7,7 +7,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Audio, AVPlaybackStatus } from 'expo-av';
 import { useSaveProgress } from './usePlaybackProgress';
 
-export const PLAYBACK_RATES = [1.0, 1.5, 2.0] as const;
+export const PLAYBACK_RATES = [0.75, 1.0, 1.2, 1.5, 2.0] as const;
 export type PlaybackRate = (typeof PLAYBACK_RATES)[number];
 
 export interface AudioPlayerState {
@@ -17,6 +17,7 @@ export interface AudioPlayerState {
   position: number; // seconds
   duration: number; // seconds
   rate: PlaybackRate;
+  error: string | null;
 }
 
 export interface AudioPlayerControls {
@@ -40,6 +41,7 @@ export function useAudioPlayer(narrationId: string): UseAudioPlayerReturn {
     position: 0,
     duration: 0,
     rate: 1.0,
+    error: null,
   });
 
   // Save progress to Supabase every 10 seconds
@@ -73,15 +75,26 @@ export function useAudioPlayer(narrationId: string): UseAudioPlayerReturn {
         soundRef.current = null;
       }
 
-      setState((prev) => ({ ...prev, isBuffering: true }));
+      setState((prev) => ({ ...prev, isBuffering: true, error: null }));
 
-      const { sound } = await Audio.Sound.createAsync(
-        { uri },
-        { shouldPlay: false, progressUpdateIntervalMillis: 500 },
-        onPlaybackStatusUpdate
-      );
+      try {
+        const { sound } = await Audio.Sound.createAsync(
+          { uri },
+          { shouldPlay: false, progressUpdateIntervalMillis: 500 },
+          onPlaybackStatusUpdate
+        );
 
-      soundRef.current = sound;
+        soundRef.current = sound;
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : 'Failed to load audio';
+        setState((prev) => ({
+          ...prev,
+          isBuffering: false,
+          isLoaded: false,
+          error: message,
+        }));
+      }
     },
     [onPlaybackStatusUpdate]
   );
