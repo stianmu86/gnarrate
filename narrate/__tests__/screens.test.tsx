@@ -124,7 +124,7 @@ jest.mock('@/lib/hooks/useNarrations', () => ({
       duration_seconds: 300,
       completed_chunks: 5,
       total_chunks: 5,
-      chapters: [{ title: 'Chapter 1', start_time: 0 }],
+      chapters: [{ title: 'Chapter 1', start_char: 0 }, { title: 'Chapter 2', start_char: 500 }],
       voice_id: 'neutral',
       source_type: 'url',
       audio_url: null,
@@ -177,6 +177,50 @@ jest.mock('lucide-react-native', () => {
     Cloud: createIcon('Cloud'),
   };
 });
+
+// Mock useAudioPlayer
+jest.mock('@/lib/hooks/useAudioPlayer', () => ({
+  useAudioPlayer: () => ({
+    isLoaded: true,
+    isPlaying: false,
+    isBuffering: false,
+    position: 0,
+    duration: 300,
+    rate: 1.0,
+    loadAudio: jest.fn(),
+    play: jest.fn(),
+    pause: jest.fn(),
+    seekTo: jest.fn(),
+    skip: jest.fn(),
+    setRate: jest.fn(),
+    cycleRate: jest.fn(),
+  }),
+  PLAYBACK_RATES: [1.0, 1.5, 2.0],
+}));
+
+// Mock usePlaybackProgress
+jest.mock('@/lib/hooks/usePlaybackProgress', () => ({
+  useLoadProgress: () => ({ data: 0, isLoading: false, error: null }),
+  useSaveProgress: jest.fn(),
+}));
+
+// Mock expo-av
+jest.mock('expo-av', () => ({
+  Audio: {
+    Sound: {
+      createAsync: jest.fn().mockResolvedValue({
+        sound: {
+          playAsync: jest.fn(),
+          pauseAsync: jest.fn(),
+          unloadAsync: jest.fn(),
+          setPositionAsync: jest.fn(),
+          setRateAsync: jest.fn(),
+          setOnPlaybackStatusUpdate: jest.fn(),
+        },
+      }),
+    },
+  },
+}));
 
 // Mock react-native-css-interop to avoid displayName issues
 jest.mock('react-native-css-interop', () => ({

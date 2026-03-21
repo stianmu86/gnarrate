@@ -15,9 +15,8 @@
 
 import { createServiceClient } from '../_shared/supabase-client.ts';
 import { corsHeaders } from '../_shared/cors.ts';
-import { DOMParser } from 'https://esm.sh/linkedom@0.16.11';
-import { Readability } from 'https://esm.sh/@mozilla/readability@0.5.0';
-import { createHash } from 'https://deno.land/std@0.208.0/crypto/mod.ts';
+import { DOMParser } from 'https://deno.land/x/deno_dom@v0.1.45/deno-dom-wasm.ts';
+import { Readability } from 'https://esm.sh/@mozilla/readability@0.5.0?bundle&no-dts&target=denonext';
 
 const MAX_CHARACTERS = 150_000;
 

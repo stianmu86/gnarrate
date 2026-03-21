@@ -78,17 +78,16 @@ Phase 5: Polish + all error states
   - [x] Shared Edge Function utils (_shared/supabase-client.ts, cors.ts)
   - [x] Modal Function: analyze-text (sanitisation, chunking, chapter detection)
   - [x] 39 unit tests passing (theme, provider, client, credit guard, analyze-text, stripe webhook)
-- [x] Phase 2 — GPU Worker (TTS pipeline) (COMPLETE)
-  - [x] Modal container: CUDA 12.1, PyTorch 2.1, FFmpeg, CosyVoice/ModelScope
-  - [x] GPU config: A10G, 600s timeout, 2 retries, 16GB RAM
+- [x] Phase 2 — TTS Worker (COMPLETE)
+  - [x] Modal container: edge-tts (Microsoft Edge TTS, high-quality neural voices)
+  - [x] 6 voice personas mapped to edge-tts voices (Aria, Jenny, Guy, Ryan, Davis, Thomas)
   - [x] Sentence-boundary chunking (500 chars max, clause fallback for long sentences)
   - [x] Per-chunk TTS inference with completed_chunks progress updates
   - [x] FFmpeg stitching → MP3 128kbps with ID3 tags (Title, Artist, Album)
   - [x] Supabase Storage upload to audio/{user_id}/{narration_id}.mp3
   - [x] Completion callback: status=completed, audio_url, duration_seconds
   - [x] Failure handling: status=failed, narration_errors log, credit refund
-  - [x] Voice seed volume for 6 narrator personas
-  - [x] 55 unit tests passing (added generate-audio: chunking, progress, failure, config)
+  - [x] 55 unit tests passing (generate-audio: chunking, progress, failure, config)
 - [x] Phase 3 — App shell + Nordic UI (COMPLETE)
   - [x] Root layout: auth guard, NordicThemeProvider, TanStack QueryClient, font loading
   - [x] Tab bar: Library (BookOpen) | Explore (Compass) | Profile (User)
@@ -106,5 +105,20 @@ Phase 5: Polish + all error states
   - [x] TanStack Query hooks: useLibrary (Realtime), useNarration, useCredits
   - [x] Template files removed (two.tsx, modal.tsx)
   - [x] 79 unit tests passing across 8 suites
-- [ ] Phase 4 — Audio player (NEXT)
+- [x] Phase 4 — Audio player (COMPLETE)
+  - [x] useAudioPlayer hook: expo-av wrapper (load, play, pause, seek, skip ±15/30s)
+  - [x] Playback rate cycling (1x → 1.5x → 2x)
+  - [x] usePlaybackProgress: save/load position to Supabase (debounced every 10s)
+  - [x] Now Playing screen wired to real expo-av audio
+  - [x] Deep link support (?t=seconds) and resume from saved progress
+  - [x] Buffering indicator, disabled controls when not ready
+  - [x] Dev Sign In button (test@narrate.dev, __DEV__ only)
+  - [x] Edge Functions deployed to cloud Supabase (process-content, stripe-webhook)
+  - [x] Local text analysis pipeline (modal/run_local.py) for dev without Modal
+  - [x] Add screen sends voice_id + correct field names to Edge Function
+  - [x] Root-level template duplicates cleaned up
+  - [x] Cloud deployment: Supabase EU Frankfurt (rtbistjbjinyywbcgbyg) + Modal (stianmu86)
+  - [x] Full end-to-end pipeline tested: text → Edge Function → Modal analyze → Modal TTS → MP3 → player
+  - [x] Chapters parsing fixed (JSON string → array, hide single-chapter view)
+  - [x] 112 unit tests passing across 9 suites
 - [ ] Phase 5 — Polish + error states

@@ -1,11 +1,10 @@
 /**
  * Now Playing screen — shows narration details, playback controls,
- * chapter list, and progress bar. Supports ?t=seconds deep link.
- *
- * Phase 4 will wire up real expo-av audio; this is the UI shell.
+ * chapter list, and progress bar. Wired to expo-av via useAudioPlayer.
+ * Supports ?t=seconds deep link for seeking to a timestamp.
  */
-import React, { useState } from 'react';
-import { View, Text, Pressable, ScrollView } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { View, Text, Pressable, ScrollView, ActivityIndicator } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
   ArrowLeft,
@@ -21,14 +20,49 @@ import {
 import { useNordicTheme } from '@/components/NordicThemeProvider';
 import { useNarration } from '@/lib/hooks/useNarrations';
 import { formatSeconds } from '@/lib/hooks/useCredits';
+import { useAudioPlayer, PLAYBACK_RATES } from '@/lib/hooks/useAudioPlayer';
+import { useLoadProgress } from '@/lib/hooks/usePlaybackProgress';
 
 export default function NowPlayingScreen() {
   const { theme } = useNordicTheme();
   const router = useRouter();
   const { id, t } = useLocalSearchParams<{ id: string; t?: string }>();
   const { data: narration, isLoading, error } = useNarration(id);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [progress, setProgress] = useState(t ? Number(t) : 0);
+  const player = useAudioPlayer(id);
+  const { data: savedPosition } = useLoadProgress(id);
+  const hasLoadedAudio = useRef(false);
+  const hasResumed = useRef(false);
+
+  // Load audio when narration is ready
+  useEffect(() => {
+    if (
+      narration?.status === 'completed' &&
+      narration.audio_url &&
+      !hasLoadedAudio.current
+    ) {
+      hasLoadedAudio.current = true;
+
+      // Convert storage URL to public URL
+      // From: /storage/v1/object/audio/... → /storage/v1/object/public/audio/...
+      const publicUrl = narration.audio_url.replace(
+        '/storage/v1/object/audio/',
+        '/storage/v1/object/public/audio/'
+      );
+      player.loadAudio(publicUrl);
+    }
+  }, [narration?.status, narration?.audio_url]);
+
+  // Seek to ?t= deep link param or saved progress after audio loads
+  useEffect(() => {
+    if (player.isLoaded && !hasResumed.current) {
+      hasResumed.current = true;
+      if (t) {
+        player.seekTo(Number(t));
+      } else if (savedPosition && savedPosition > 0) {
+        player.seekTo(savedPosition);
+      }
+    }
+  }, [player.isLoaded, t, savedPosition]);
 
   if (isLoading) {
     return (
@@ -52,8 +86,9 @@ export default function NowPlayingScreen() {
     );
   }
 
-  const duration = narration.duration_seconds ?? 0;
-  const progressPercent = duration > 0 ? Math.min(progress / duration, 1) : 0;
+  const duration = player.isLoaded ? player.duration : (narration.duration_seconds ?? 0);
+  const position = player.position;
+  const progressPercent = duration > 0 ? Math.min(position / duration, 1) : 0;
   const isReady = narration.status === 'completed';
   const isProcessing = narration.status === 'processing' || narration.status === 'pending';
 
@@ -147,8 +182,18 @@ export default function NowPlayingScreen() {
           </Text>
         )}
         <Text style={{ fontFamily: 'Inter', fontSize: 12, color: theme.textSecondary, marginBottom: 24 }}>
-          {duration > 0 ? formatSeconds(duration) : 'Duration pending'}
+          {duration > 0 ? formatSeconds(Math.floor(duration)) : 'Duration pending'}
         </Text>
+
+        {/* Buffering indicator */}
+        {player.isBuffering && (
+          <View style={{ alignItems: 'center', marginBottom: 8 }}>
+            <ActivityIndicator size="small" color={theme.accent} />
+            <Text style={{ fontFamily: 'Inter', fontSize: 11, color: theme.textSecondary, marginTop: 4 }}>
+              Buffering…
+            </Text>
+          </View>
+        )}
 
         {/* Progress bar */}
         <View style={{ marginBottom: 8 }}>
@@ -171,10 +216,10 @@ export default function NowPlayingScreen() {
           </View>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 }}>
             <Text style={{ fontFamily: 'Inter', fontSize: 11, color: theme.textSecondary }}>
-              {formatSeconds(progress)}
+              {formatSeconds(Math.floor(position))}
             </Text>
             <Text style={{ fontFamily: 'Inter', fontSize: 11, color: theme.textSecondary }}>
-              {duration > 0 ? formatSeconds(duration) : '--:--'}
+              {duration > 0 ? formatSeconds(Math.floor(duration)) : '--:--'}
             </Text>
           </View>
         </View>
@@ -189,11 +234,19 @@ export default function NowPlayingScreen() {
             marginVertical: 24,
           }}
         >
-          <Pressable hitSlop={12} onPress={() => setProgress(Math.max(0, progress - 15))}>
-            <SkipBack size={28} color={theme.textPrimary} strokeWidth={1.5} />
+          <Pressable
+            hitSlop={12}
+            onPress={() => player.skip(-15)}
+            disabled={!isReady}
+          >
+            <SkipBack size={28} color={isReady ? theme.textPrimary : theme.textSecondary} strokeWidth={1.5} />
           </Pressable>
           <Pressable
-            onPress={() => isReady && setIsPlaying(!isPlaying)}
+            onPress={() => {
+              if (!isReady) return;
+              player.isPlaying ? player.pause() : player.play();
+            }}
+            disabled={!isReady}
             style={{
               backgroundColor: isReady ? theme.accent : theme.border,
               width: 64,
@@ -203,62 +256,96 @@ export default function NowPlayingScreen() {
               justifyContent: 'center',
             }}
           >
-            {isPlaying ? (
-              <Pause size={28} color="#FFFFFF" strokeWidth={2} />
+            {player.isPlaying ? (
+              <Pause size={28} color={theme.surface} strokeWidth={2} />
             ) : (
-              <Play size={28} color="#FFFFFF" strokeWidth={2} style={{ marginLeft: 3 }} />
+              <Play size={28} color={theme.surface} strokeWidth={2} style={{ marginLeft: 3 }} />
             )}
           </Pressable>
-          <Pressable hitSlop={12} onPress={() => setProgress(Math.min(duration, progress + 30))}>
-            <SkipForward size={28} color={theme.textPrimary} strokeWidth={1.5} />
+          <Pressable
+            hitSlop={12}
+            onPress={() => player.skip(30)}
+            disabled={!isReady}
+          >
+            <SkipForward size={28} color={isReady ? theme.textPrimary : theme.textSecondary} strokeWidth={1.5} />
           </Pressable>
         </View>
 
-        {/* Chapters */}
-        {narration.chapters && narration.chapters.length > 0 && (
-          <View style={{ marginTop: 8 }}>
-            <Text
+        {/* Speed control */}
+        {isReady && (
+          <View style={{ alignItems: 'center', marginBottom: 24 }}>
+            <Pressable
+              onPress={() => player.cycleRate()}
               style={{
-                fontFamily: 'Inter',
-                fontSize: 12,
-                fontWeight: '600',
-                color: theme.textSecondary,
-                textTransform: 'uppercase',
-                letterSpacing: 1,
-                marginBottom: 12,
+                paddingHorizontal: 16,
+                paddingVertical: 8,
+                borderRadius: 16,
+                borderWidth: 1,
+                borderColor: theme.border,
               }}
             >
-              Chapters
-            </Text>
-            {narration.chapters.map((chapter, idx) => (
-              <Pressable
-                key={idx}
-                onPress={() => setProgress(chapter.start_time)}
-                style={{
-                  flexDirection: 'row',
-                  justifyContent: 'space-between',
-                  paddingVertical: 12,
-                  borderBottomWidth: 1,
-                  borderBottomColor: theme.border,
-                }}
-              >
-                <Text
-                  style={{
-                    fontFamily: 'Inter',
-                    fontSize: 14,
-                    color: theme.textPrimary,
-                    flex: 1,
-                  }}
-                >
-                  {chapter.title}
-                </Text>
-                <Text style={{ fontFamily: 'Inter', fontSize: 12, color: theme.textSecondary }}>
-                  {formatSeconds(chapter.start_time)}
-                </Text>
-              </Pressable>
-            ))}
+              <Text style={{ fontFamily: 'Inter', fontSize: 13, fontWeight: '600', color: theme.textPrimary }}>
+                {player.rate}x
+              </Text>
+            </Pressable>
           </View>
         )}
+
+        {/* Chapters */}
+        {(() => {
+          // chapters may be a JSON string or an array
+          let chapters: { title: string; start_char: number }[] = [];
+          try {
+            chapters = typeof narration.chapters === 'string'
+              ? JSON.parse(narration.chapters)
+              : Array.isArray(narration.chapters)
+                ? narration.chapters
+                : [];
+          } catch {
+            chapters = [];
+          }
+          if (chapters.length <= 1) return null; // Don't show single "Full Text" chapter
+          return (
+            <View style={{ marginTop: 8 }}>
+              <Text
+                style={{
+                  fontFamily: 'Inter',
+                  fontSize: 12,
+                  fontWeight: '600',
+                  color: theme.textSecondary,
+                  textTransform: 'uppercase',
+                  letterSpacing: 1,
+                  marginBottom: 12,
+                }}
+              >
+                Chapters
+              </Text>
+              {chapters.map((chapter: { title: string; start_char: number }, idx: number) => (
+                <View
+                  key={idx}
+                  style={{
+                    flexDirection: 'row',
+                    justifyContent: 'space-between',
+                    paddingVertical: 12,
+                    borderBottomWidth: 1,
+                    borderBottomColor: theme.border,
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontFamily: 'Inter',
+                      fontSize: 14,
+                      color: theme.textPrimary,
+                      flex: 1,
+                    }}
+                  >
+                    {chapter.title}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          );
+        })()}
       </ScrollView>
     </View>
   );

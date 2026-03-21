@@ -55,13 +55,21 @@ export default function AddScreen() {
     try {
       const body: Record<string, string> = {};
 
+      // Fetch the default voice ID ('The Neutral', free tier)
+      const { data: defaultVoice } = await supabase
+        .from('voices')
+        .select('id')
+        .eq('name', 'The Neutral')
+        .single();
+
+      body.voice_id = defaultVoice?.id ?? '';
+
       if (activeTab === 'url') {
         body.source_type = 'url';
-        body.source_url = url.trim();
+        body.url = url.trim();
       } else if (activeTab === 'text') {
         body.source_type = 'text';
-        body.content_raw = rawText.trim();
-        body.title = title.trim() || 'Untitled';
+        body.text = rawText.trim();
       }
 
       const { data: sessionData } = await supabase.auth.getSession();
