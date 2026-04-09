@@ -60,6 +60,7 @@ Deno.serve(async (req: Request) => {
       pdfFile = formData.get('file') as File | null;
       source_type = (formData.get('source_type') as string) || 'pdf';
       voice_id = (formData.get('voice_id') as string) || '';
+      console.log('Multipart parsed:', { source_type, voice_id: voice_id ? 'present' : 'EMPTY', hasFile: !!pdfFile });
     } else {
       const body = await req.json();
       source_type = body.source_type;
@@ -70,7 +71,8 @@ Deno.serve(async (req: Request) => {
 
     // Validate input
     if (!source_type || !voice_id) {
-      return jsonError('INVALID_INPUT', 'source_type and voice_id are required', 400);
+      console.error('Validation failed:', { source_type, voice_id, isMultipart });
+      return jsonError('INVALID_INPUT', `source_type and voice_id are required (got source_type=${source_type || 'empty'}, voice_id=${voice_id ? 'present' : 'empty'})`, 400);
     }
 
     // ---------------------------------------------------------------

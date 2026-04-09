@@ -93,14 +93,30 @@ export default function AddScreen() {
       let res: Response;
 
       if (activeTab === 'pdf' && selectedFile) {
+        const voiceId = defaultVoice?.id ?? '';
+        if (!voiceId) {
+          setErrorMsg('Could not find default voice. Please try again.');
+          setIsSubmitting(false);
+          return;
+        }
+
         const formData = new FormData();
-        formData.append('file', {
-          uri: selectedFile.uri,
-          name: selectedFile.name || 'document.pdf',
-          type: 'application/pdf',
-        } as any);
+
+        if (Platform.OS === 'web') {
+          // On web, fetch the file blob from the URI and append as a File
+          const fileResponse = await fetch(selectedFile.uri);
+          const blob = await fileResponse.blob();
+          formData.append('file', blob, selectedFile.name || 'document.pdf');
+        } else {
+          // On native (iOS/Android), use the React Native FormData pattern
+          formData.append('file', {
+            uri: selectedFile.uri,
+            name: selectedFile.name || 'document.pdf',
+            type: 'application/pdf',
+          } as any);
+        }
         formData.append('source_type', 'pdf');
-        formData.append('voice_id', defaultVoice?.id ?? '');
+        formData.append('voice_id', voiceId);
 
         res = await fetch(
           `${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/process-content`,
