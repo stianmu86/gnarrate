@@ -16,7 +16,8 @@ import {
   Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { X, Link, FileText, Type } from 'lucide-react-native';
+import { X, Link, FileText, Type, Trash2 } from 'lucide-react-native';
+import * as DocumentPicker from 'expo-document-picker';
 import { useNordicTheme } from '@/components/NordicThemeProvider';
 import { useAuth } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
@@ -32,6 +33,7 @@ export default function AddScreen() {
   const [url, setUrl] = useState('');
   const [rawText, setRawText] = useState('');
   const [title, setTitle] = useState('');
+  const [selectedFile, setSelectedFile] = useState<DocumentPicker.DocumentPickerAsset | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -49,7 +51,7 @@ export default function AddScreen() {
   const canSubmit = () => {
     if (activeTab === 'url') return isValidUrl(url);
     if (activeTab === 'text') return rawText.trim().length >= 100;
-    return false; // PDF requires file picker (Phase 4)
+    if (activeTab === 'pdf') return selectedFile !== null;
   };
 
   const showUrlError = activeTab === 'url' && url.trim().length > 0 && !isValidUrl(url);
@@ -88,17 +90,57 @@ export default function AddScreen() {
         return;
       }
 
-      const res = await fetch(
-        `${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/process-content`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify(body),
+      let res: Response;
+
+      if (activeTab === 'pdf' && selectedFile) {
+        const voiceId = defaultVoice?.id ?? '';
+        if (!voiceId) {
+          setErrorMsg('Could not find default voice. Please try again.');
+          setIsSubmitting(false);
+          return;
         }
-      );
+
+        const formData = new FormData();
+
+        if (Platform.OS === 'web') {
+          // On web, fetch the file blob from the URI and append as a File
+          const fileResponse = await fetch(selectedFile.uri);
+          const blob = await fileResponse.blob();
+          formData.append('file', blob, selectedFile.name || 'document.pdf');
+        } else {
+          // On native (iOS/Android), use the React Native FormData pattern
+          formData.append('file', {
+            uri: selectedFile.uri,
+            name: selectedFile.name || 'document.pdf',
+            type: 'application/pdf',
+          } as any);
+        }
+        formData.append('source_type', 'pdf');
+        formData.append('voice_id', voiceId);
+
+        res = await fetch(
+          `${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/process-content`,
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+            body: formData,
+          }
+        );
+      } else {
+        res = await fetch(
+          `${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/process-content`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify(body),
+          }
+        );
+      }
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: 'Unknown error' }));
@@ -234,31 +276,123 @@ export default function AddScreen() {
 
         {/* PDF tab */}
         {activeTab === 'pdf' && (
-          <View style={{ alignItems: 'center', paddingVertical: 40 }}>
-            <FileText size={32} color={theme.textSecondary} strokeWidth={1} />
-            <Text
-              style={{
-                fontFamily: 'Newsreader',
-                fontSize: 18,
-                fontWeight: '600',
-                color: theme.textPrimary,
-                marginTop: 12,
-                textAlign: 'center',
-              }}
-            >
-              PDF Upload
+          <View>
+            <Text style={{ fontFamily: 'Inter', fontSize: 12, fontWeight: '600', color: theme.textSecondary, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 1 }}>
+              Upload PDF
             </Text>
-            <Text
-              style={{
-                fontFamily: 'Inter',
-                fontSize: 13,
-                color: theme.textSecondary,
-                marginTop: 4,
-                textAlign: 'center',
-              }}
-            >
-              PDF upload will be available in a future update.
-            </Text>
+            {!selectedFile ? (
+              <Pressable
+                onPress={async () => {
+                  try {
+                    const result = await DocumentPicker.getDocumentAsync({
+                      type: 'application/pdf',
+                    });
+                    if (!result.canceled && result.assets && result.assets.length > 0) {
+                      const file = result.assets[0];
+                      const MAX_SIZE = 50 * 1024 * 1024; // 50 MB
+                      if (file.size && file.size > MAX_SIZE) {
+                        setErrorMsg('File is too large. Maximum size is 50 MB.');
+                        return;
+                      }
+                      setErrorMsg(null);
+                      setSelectedFile(file);
+                    }
+                  } catch {
+                    setErrorMsg('Could not open file picker.');
+                  }
+                }}
+                style={{
+                  backgroundColor: theme.surface,
+                  borderRadius: 12,
+                  borderWidth: 2,
+                  borderColor: theme.border,
+                  borderStyle: 'dashed',
+                  paddingVertical: 40,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <FileText size={32} color={theme.textSecondary} strokeWidth={1} />
+                <Text
+                  style={{
+                    fontFamily: 'Newsreader',
+                    fontSize: 18,
+                    fontWeight: '600',
+                    color: theme.textPrimary,
+                    marginTop: 12,
+                    textAlign: 'center',
+                  }}
+                >
+                  Tap to select PDF
+                </Text>
+                <Text
+                  style={{
+                    fontFamily: 'Inter',
+                    fontSize: 13,
+                    color: theme.textSecondary,
+                    marginTop: 4,
+                    textAlign: 'center',
+                  }}
+                >
+                  Max file size: 50 MB
+                </Text>
+              </Pressable>
+            ) : (
+              <View
+                style={{
+                  backgroundColor: theme.surface,
+                  borderRadius: 12,
+                  borderWidth: 1,
+                  borderColor: theme.border,
+                  padding: 16,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                }}
+              >
+                <FileText size={24} color={theme.accent} strokeWidth={1.5} />
+                <View style={{ flex: 1, marginLeft: 12 }}>
+                  <Text
+                    numberOfLines={1}
+                    style={{
+                      fontFamily: 'Inter',
+                      fontSize: 14,
+                      fontWeight: '500',
+                      color: theme.textPrimary,
+                    }}
+                  >
+                    {selectedFile.name || 'document.pdf'}
+                  </Text>
+                  {selectedFile.size != null && (
+                    <Text
+                      style={{
+                        fontFamily: 'Inter',
+                        fontSize: 12,
+                        color: theme.textSecondary,
+                        marginTop: 2,
+                      }}
+                    >
+                      {selectedFile.size < 1024
+                        ? `${selectedFile.size} B`
+                        : selectedFile.size < 1024 * 1024
+                        ? `${(selectedFile.size / 1024).toFixed(1)} KB`
+                        : `${(selectedFile.size / (1024 * 1024)).toFixed(1)} MB`}
+                    </Text>
+                  )}
+                </View>
+                <Pressable
+                  onPress={() => {
+                    setSelectedFile(null);
+                    setErrorMsg(null);
+                  }}
+                  hitSlop={8}
+                  style={{
+                    padding: 8,
+                  }}
+                >
+                  <Trash2 size={18} color={theme.accent} strokeWidth={1.5} />
+                </Pressable>
+              </View>
+            )}
           </View>
         )}
 

@@ -1,15 +1,18 @@
 /**
  * Narrate — process-content Edge Function
  *
- * Accepts a URL, raw text, or (future) PDF.
- * 1. Scrapes & extracts clean text via Readability (for URLs)
- * 2. Runs pre-flight credit guard
- * 3. Checks deduplication (content_hash)
- * 4. Creates narration row with content_raw, status = 'pending'
- * 5. Calls Modal analyze-text endpoint
+ * Accepts a URL, raw text, or PDF upload.
+ * 1. Scrapes & extracts clean text (URLs), or validates PDF
+ * 2. Validates content length, estimates word count
+ * 3. Checks deduplication (content_hash) — skipped for PDFs
+ * 4. Runs pre-flight credit guard
+ * 5. Uploads PDF to storage (if applicable)
+ * 6. Creates narration row with status = 'pending'
+ * 7. Calls Modal analyze-text endpoint
  *
  * POST /functions/v1/process-content
- * Body: { source_type: 'url' | 'text', url?: string, text?: string, voice_id: string }
+ * Body (JSON): { source_type: 'url' | 'text', url?: string, text?: string, voice_id: string }
+ * Body (multipart/form-data): file (PDF), source_type='pdf', voice_id
  * Auth: Bearer token (user JWT)
  */
 
@@ -42,12 +45,34 @@ Deno.serve(async (req: Request) => {
       return jsonError('UNAUTHORIZED', 'Invalid token', 401);
     }
 
-    const body = await req.json();
-    const { source_type, url, text, voice_id } = body;
+    // Detect content type (multipart for PDF, JSON for URL/text)
+    const contentType = req.headers.get('Content-Type') || '';
+    const isMultipart = contentType.includes('multipart/form-data');
+
+    let source_type: string;
+    let url: string | undefined;
+    let text: string | undefined;
+    let voice_id: string;
+    let pdfFile: File | null = null;
+
+    if (isMultipart) {
+      const formData = await req.formData();
+      pdfFile = formData.get('file') as File | null;
+      source_type = (formData.get('source_type') as string) || 'pdf';
+      voice_id = (formData.get('voice_id') as string) || '';
+      console.log('Multipart parsed:', { source_type, voice_id: voice_id ? 'present' : 'EMPTY', hasFile: !!pdfFile });
+    } else {
+      const body = await req.json();
+      source_type = body.source_type;
+      url = body.url;
+      text = body.text;
+      voice_id = body.voice_id;
+    }
 
     // Validate input
     if (!source_type || !voice_id) {
-      return jsonError('INVALID_INPUT', 'source_type and voice_id are required', 400);
+      console.error('Validation failed:', { source_type, voice_id, isMultipart });
+      return jsonError('INVALID_INPUT', `source_type and voice_id are required (got source_type=${source_type || 'empty'}, voice_id=${voice_id ? 'present' : 'empty'})`, 400);
     }
 
     // ---------------------------------------------------------------
@@ -109,6 +134,29 @@ Deno.serve(async (req: Request) => {
       title = text.substring(0, 60).split('\n')[0] || 'Untitled';
       author = null;
 
+    } else if (source_type === 'pdf') {
+      if (!pdfFile) return jsonError('INVALID_INPUT', 'PDF file is required', 400);
+
+      // Validate MIME type
+      if (pdfFile.type !== 'application/pdf') {
+        return jsonError('INVALID_INPUT', 'File must be a PDF', 400);
+      }
+
+      // Validate file size (50MB max)
+      const MAX_PDF_SIZE = 50 * 1024 * 1024;
+      if (pdfFile.size > MAX_PDF_SIZE) {
+        return jsonError('FILE_TOO_LARGE', 'PDF must be under 50MB', 413);
+      }
+
+      // Title from filename
+      title = pdfFile.name?.replace(/\.pdf$/i, '') || 'Untitled PDF';
+      author = null;
+      source_url = null;
+
+      // We don't have content_raw yet — Modal will extract it from the PDF
+      // Estimate word count from file size for credit calculation (~250 words per page, ~3KB per page)
+      content_raw = ''; // Will be filled by Modal
+
     } else {
       return jsonError('INVALID_INPUT', `Unsupported source_type: ${source_type}`, 400);
     }
@@ -116,54 +164,61 @@ Deno.serve(async (req: Request) => {
     // ---------------------------------------------------------------
     // 2. Validate content length
     // ---------------------------------------------------------------
-    if (content_raw.length > MAX_CHARACTERS) {
+    if (source_type !== 'pdf' && content_raw.length > MAX_CHARACTERS) {
       return jsonError('CONTENT_TOO_LONG', `Content exceeds ${MAX_CHARACTERS} character limit`, 413);
     }
 
-    const word_count = content_raw.split(/\s+/).filter(Boolean).length;
+    // For PDFs, estimate from file size since we don't have text yet
+    const word_count = source_type === 'pdf' && pdfFile
+      ? Math.ceil((pdfFile.size / 3000) * 250)
+      : content_raw.split(/\s+/).filter(Boolean).length;
 
     // ---------------------------------------------------------------
-    // 3. Deduplication check (SHA-256 hash)
+    // 3. Deduplication check (SHA-256 hash) — skip for PDFs
     // ---------------------------------------------------------------
-    const encoder = new TextEncoder();
-    const hashBuffer = await crypto.subtle.digest('SHA-256', encoder.encode(content_raw));
-    const content_hash = Array.from(new Uint8Array(hashBuffer))
-      .map(b => b.toString(16).padStart(2, '0'))
-      .join('');
+    let content_hash: string | null = null;
 
-    // Check if an identical narration already exists for this voice
-    const { data: existingNarration } = await supabase
-      .from('narrations')
-      .select('id, audio_url, status')
-      .eq('content_hash', content_hash)
-      .eq('voice_id', voice_id)
-      .eq('status', 'completed')
-      .limit(1)
-      .single();
+    if (source_type !== 'pdf') {
+      const encoder = new TextEncoder();
+      const hashBuffer = await crypto.subtle.digest('SHA-256', encoder.encode(content_raw));
+      content_hash = Array.from(new Uint8Array(hashBuffer))
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('');
 
-    if (existingNarration?.audio_url) {
-      // Deduplication hit — link user to existing audio at zero cost
-      const { data: newNarration, error: insertError } = await supabase
+      // Check if an identical narration already exists for this voice
+      const { data: existingNarration } = await supabase
         .from('narrations')
-        .insert({
-          user_id: user.id,
-          voice_id,
-          title,
-          author,
-          content_raw,
-          source_type,
-          source_url,
-          audio_url: existingNarration.audio_url,
-          word_count,
-          content_hash,
-          status: 'completed',
-        })
-        .select('id')
+        .select('id, audio_url, status')
+        .eq('content_hash', content_hash)
+        .eq('voice_id', voice_id)
+        .eq('status', 'completed')
+        .limit(1)
         .single();
 
-      if (insertError) throw insertError;
+      if (existingNarration?.audio_url) {
+        // Deduplication hit — link user to existing audio at zero cost
+        const { data: newNarration, error: insertError } = await supabase
+          .from('narrations')
+          .insert({
+            user_id: user.id,
+            voice_id,
+            title,
+            author,
+            content_raw,
+            source_type,
+            source_url,
+            audio_url: existingNarration.audio_url,
+            word_count,
+            content_hash,
+            status: 'completed',
+          })
+          .select('id')
+          .single();
 
-      return jsonOk({ narration_id: newNarration.id, deduplicated: true });
+        if (insertError) throw insertError;
+
+        return jsonOk({ narration_id: newNarration.id, deduplicated: true });
+      }
     }
 
     // ---------------------------------------------------------------
@@ -213,7 +268,29 @@ Deno.serve(async (req: Request) => {
     }
 
     // ---------------------------------------------------------------
-    // 5. Create narration row
+    // 5. Upload PDF to storage (if applicable)
+    // ---------------------------------------------------------------
+    let pdf_storage_path: string | null = null;
+
+    if (source_type === 'pdf' && pdfFile) {
+      // Generate storage path
+      pdf_storage_path = `${user.id}/${crypto.randomUUID()}.pdf`;
+
+      // Upload PDF to storage
+      const pdfBuffer = await pdfFile.arrayBuffer();
+      const { error: uploadError } = await supabase.storage
+        .from('pdfs')
+        .upload(pdf_storage_path, pdfBuffer, {
+          contentType: 'application/pdf',
+        });
+
+      if (uploadError) {
+        return jsonError('UPLOAD_FAILED', 'Failed to upload PDF', 500);
+      }
+    }
+
+    // ---------------------------------------------------------------
+    // 6. Create narration row
     // ---------------------------------------------------------------
     const { data: narration, error: narrationError } = await supabase
       .from('narrations')
@@ -222,11 +299,12 @@ Deno.serve(async (req: Request) => {
         voice_id,
         title,
         author,
-        content_raw,
+        content_raw: source_type === 'pdf' ? null : content_raw,
         source_type,
         source_url,
         word_count,
         content_hash,
+        pdf_storage_path,
         status: 'pending',
       })
       .select('id')
@@ -235,7 +313,7 @@ Deno.serve(async (req: Request) => {
     if (narrationError) throw narrationError;
 
     // ---------------------------------------------------------------
-    // 6. Trigger Modal analyze-text endpoint (async, fire-and-forget)
+    // 7. Trigger Modal analyze-text endpoint (async, fire-and-forget)
     // ---------------------------------------------------------------
     const modalAnalyzeEndpoint = Deno.env.get('MODAL_ANALYZE_ENDPOINT');
     const modalApiKey = Deno.env.get('MODAL_API_KEY');
@@ -250,8 +328,10 @@ Deno.serve(async (req: Request) => {
         },
         body: JSON.stringify({
           narration_id: narration.id,
-          content_raw,
+          content_raw: source_type === 'pdf' ? null : content_raw,
           voice_id,
+          source_type,
+          pdf_storage_path,
         }),
       }).catch(err => {
         console.error('Failed to trigger analyze-text:', err);

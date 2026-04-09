@@ -122,6 +122,11 @@ public = false
 file_size_limit = "50MiB"
 allowed_mime_types = ["audio/mpeg", "audio/mp3"]
 
+[storage.buckets.pdfs]
+public = false
+file_size_limit = "50MiB"
+allowed_mime_types = ["application/pdf"]
+
 # Allow connections via S3 compatible clients
 [storage.s3_protocol]
 enabled = true

@@ -222,6 +222,20 @@ jest.mock('expo-av', () => ({
   },
 }));
 
+// Mock expo-document-picker
+jest.mock('expo-document-picker', () => ({
+  getDocumentAsync: jest.fn().mockResolvedValue({
+    canceled: true,
+    assets: [],
+  }),
+}));
+
+// Mock expo-file-system
+jest.mock('expo-file-system', () => ({
+  documentDirectory: '/mock/documents/',
+  downloadAsync: jest.fn().mockResolvedValue({ uri: '/mock/file.mp3' }),
+}));
+
 // Mock react-native-css-interop to avoid displayName issues
 jest.mock('react-native-css-interop', () => ({
   cssInterop: jest.fn(),
